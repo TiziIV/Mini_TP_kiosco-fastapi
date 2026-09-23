@@ -1,0 +1,30 @@
+# Byte-compiled / optimizados de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Entornos virtuales
+.venv/
+venv/
+ENV/
+env/
+
+# Variables de entorno y configuración local
+.env
+*.local
+
+# IDEs y editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Pruebas y cobertura
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs del sistema y descargas
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,243 @@
+<title>Kiosco — Catálogo con compras</title>
+<style>
+  :root {
+    --navy: #1F4E78;
+    --navy-dark: #14202A;
+    --ink: #1F2D3D;
+    --muted: #5A6470;
+    --blue-border: #1F6FB5;
+    --blue-fill: #EEF4FB;
+    --green-border: #2D7D57;
+    --green-fill: #EEF8F2;
+    --code-fill: #1E2A38;
+    --code-text: #E8ECF0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: Calibri, "Segoe UI", Arial, sans-serif;
+    color: var(--ink);
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+    line-height: 1.45;
+  }
+  h1 { color: var(--navy-dark); font-size: 1.9rem; margin-bottom: 0.2rem; }
+  .subtitulo { color: var(--muted); font-style: italic; margin-top: 0; margin-bottom: 1.5rem; }
+  h2 {
+    color: var(--navy);
+    border-bottom: 2px solid var(--navy);
+    padding-bottom: 0.25rem;
+    margin-top: 2.5rem;
+    font-size: 1.15rem;
+  }
+  .ruta {
+    display: inline-block;
+    font-family: Consolas, monospace;
+    background: var(--navy-dark);
+    color: white;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+  }
+  .archivo { color: var(--muted); font-size: 0.85rem; }
+  .callout {
+    border-left: 4px solid var(--blue-border);
+    background: var(--blue-fill);
+    padding: 0.65rem 0.9rem;
+    margin: 0.6rem 0;
+    font-size: 0.9rem;
+  }
+  .callout.verde { border-left-color: var(--green-border); background: var(--green-fill); }
+  label { font-size: 0.85rem; color: var(--muted); margin-right: 0.3rem; }
+  input {
+    border: 1px solid #c6cdd5;
+    border-radius: 4px;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.9rem;
+    width: 6.5rem;
+    margin-right: 0.75rem;
+  }
+  input[type="email"] { width: 13rem; }
+  button {
+    background: var(--navy);
+    color: white;
+    border: none;
+    padding: 0.5rem 0.9rem;
+    border-radius: 5px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    margin: 0.4rem 0.4rem 0.4rem 0;
+  }
+  button:hover { background: var(--navy-dark); }
+  button.secundario { background: white; color: var(--navy); border: 1px solid var(--navy); }
+  pre.resultado {
+    background: var(--code-fill);
+    color: var(--code-text);
+    padding: 0.7rem 1rem;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    white-space: pre-wrap;
+    min-height: 1.3rem;
+    margin-top: 0.4rem;
+  }
+  .tiempo { color: #8fe3a6; font-weight: bold; }
+  .fila-comparacion { display: flex; gap: 1.25rem; flex-wrap: wrap; }
+  .col-comparacion { flex: 1; min-width: 280px; }
+  code { background: #eee; padding: 0.1rem 0.3rem; border-radius: 3px; }
+  footer { color: var(--muted); font-size: 0.85rem; margin-top: 3rem; }
+</style>
+
+<h1>Kiosco — Catálogo con compras</h1>
+<p class="subtitulo">Cada tarjeta prueba un endpoint real, contra el servidor real, y muestra cuánto tardó. La explicación es la misma que está en el docstring del handler.</p>
+
+<h2>Catálogo</h2>
+
+<span class="ruta">GET /productos</span> <span class="archivo">app/productos.py</span>
+<div class="callout">
+  Trae el catálogo completo. El <code>await asyncio.sleep(0.05)</code> de adentro simula la consulta a la base: cede el control en ese hueco, no frena al resto del servidor mientras "espera".
+</div>
+<button onclick="llamar('GET', '/productos', null, 'r-lista')">listar productos</button>
+<pre class="resultado" id="r-lista"></pre>
+
+<span class="ruta">GET /productos/{id}</span> <span class="archivo">app/productos.py</span>
+<div class="callout">
+  Un producto puntual, o 404 si el id no existe. FastAPI convierte <code>{id}</code> a <code>int</code> solo — si se manda algo que no es número, ni siquiera llega a ejecutar el handler.
+</div>
+<label>id</label><input id="in-producto-id" type="number" value="1" min="1">
+<button onclick="llamarConId('GET', '/productos/', 'in-producto-id', 'r-producto')">consultar producto</button>
+<pre class="resultado" id="r-producto"></pre>
+
+<h2>Comparar síncrono vs. asíncrono</h2>
+<p>La misma tarea (consultar disponibilidad de los 3 productos del catálogo) escrita dos veces en <code>app/comparacion.py</code>: una con <code>time.sleep</code>, otra con <code>await asyncio.sleep</code> + <code>TaskGroup</code>. Todo lo demás es idéntico.</p>
+
+<div class="fila-comparacion">
+  <div class="col-comparacion">
+    <span class="ruta">GET /comparacion/sincrono</span>
+    <div class="callout">
+      Consulta los 3 productos <strong>uno atrás del otro</strong>, con <code>time.sleep</code>. Cada consulta bloquea el bucle de eventos entero mientras "espera".
+    </div>
+    <button onclick="llamar('GET', '/comparacion/sincrono', null, 'r-comp-sinc')">ver duración</button>
+    <button class="secundario" onclick="carrera('/comparacion/sincrono', 'r-comp-sinc-carrera', 'r-comp-sinc-rapida')">+ /productos/1 en paralelo</button>
+    <pre class="resultado" id="r-comp-sinc"></pre>
+    <pre class="resultado" id="r-comp-sinc-carrera"></pre>
+    <pre class="resultado" id="r-comp-sinc-rapida"></pre>
+  </div>
+  <div class="col-comparacion">
+    <span class="ruta">GET /comparacion/asincrono</span>
+    <div class="callout verde">
+      Consulta los 3 productos <strong>juntos</strong>, con <code>TaskGroup</code>. Como ninguna consulta depende de otra, se solapan en vez de sumarse.
+    </div>
+    <button onclick="llamar('GET', '/comparacion/asincrono', null, 'r-comp-asinc')">ver duración</button>
+    <button class="secundario" onclick="carrera('/comparacion/asincrono', 'r-comp-asinc-carrera', 'r-comp-asinc-rapida')">+ /productos/1 en paralelo</button>
+    <pre class="resultado" id="r-comp-asinc"></pre>
+    <pre class="resultado" id="r-comp-asinc-carrera"></pre>
+    <pre class="resultado" id="r-comp-asinc-rapida"></pre>
+  </div>
+</div>
+<div class="callout verde">
+  <strong>Qué mirar:</strong> el <code>duracion_ms</code> del botón "ver duración" ya muestra ~900 ms vs. ~300 ms. El botón "en paralelo" es más contundente todavía: contra <code>sincrono</code>, <code>/productos/1</code> queda pegado esperando los mismos ~900 ms; contra <code>asincrono</code>, responde casi al instante aunque el otro siga corriendo.
+</div>
+
+<h2>Comprar</h2>
+
+<span class="ruta">POST /productos/{id}/comprar</span> <span class="archivo">app/productos.py</span>
+<div class="callout verde">
+  Verifica que el producto esté habilitado y que haya stock <strong>en paralelo</strong> con <code>TaskGroup</code> (ninguna de las dos consultas depende de la otra), resta el stock protegido por un <code>asyncio.Lock</code>, y deja la notificación en <code>BackgroundTasks</code> para que se dispare después de responder. Productos: 1 (Alfajor), 2 (Gaseosa, 2 reservadas), 3 (Chicle, deshabilitado y sin stock: devuelve error normado).
+</div>
+<label>producto</label><input id="in-compra-producto-id" type="number" value="1" min="1">
+<label>cantidad</label><input id="in-cantidad" type="number" value="1" min="1">
+<button onclick="comprar()">comprar</button>
+<pre class="resultado" id="r-compra"></pre>
+
+<h2>Poner a prueba el candado</h2>
+<p>Dispara 10 compras de 1 unidad del mismo producto <strong>al mismo tiempo</strong> (no una atrás de la otra) y compara el stock antes y después. Si el candado de <code>app/datos.py</code> funciona, la diferencia es exactamente la cantidad de compras exitosas — ninguna se pierde ni se cuenta dos veces.</p>
+<button onclick="probarConcurrencia()">disparar 10 compras en paralelo (producto 1)</button>
+<pre class="resultado" id="r-concurrencia"></pre>
+
+<footer>
+  Documentación interactiva completa (para probar cada endpoint a mano, con sus esquemas) en <a href="/docs">/docs</a>.
+</footer>
+
+<script>
+function mostrar(idResultado, texto) {
+  document.getElementById(idResultado).textContent = texto;
+}
+
+async function llamar(metodo, ruta, body, idResultado) {
+  mostrar(idResultado, "pidiendo...");
+  const inicio = performance.now();
+  try {
+    const opciones = { method: metodo };
+    if (body !== null) {
+      opciones.headers = { "Content-Type": "application/json" };
+      opciones.body = JSON.stringify(body);
+    }
+    const resp = await fetch(ruta, opciones);
+    const ms = Math.round(performance.now() - inicio);
+    const datos = await resp.json();
+    mostrar(idResultado, `[${ms} ms] HTTP ${resp.status}\n` + JSON.stringify(datos, null, 2));
+    return { status: resp.status, datos };
+  } catch (err) {
+    mostrar(idResultado, "error: " + err);
+    return null;
+  }
+}
+
+async function carrera(rutaLenta, idLenta, idRapida) {
+  mostrar(idLenta, "pidiendo...");
+  mostrar(idRapida, "pidiendo...");
+  const inicio = performance.now();
+  const pLenta = fetch(rutaLenta).then(r => r.json()).then(d => {
+    mostrar(idLenta, `[${Math.round(performance.now() - inicio)} ms] ${rutaLenta} -> ` + JSON.stringify(d, null, 2));
+  });
+  const pRapida = fetch('/productos/1').then(r => r.json()).then(d => {
+    mostrar(idRapida, `[${Math.round(performance.now() - inicio)} ms] /productos/1 -> ` + JSON.stringify(d, null, 2));
+  });
+  await Promise.all([pLenta, pRapida]);
+}
+
+function llamarConId(metodo, rutaBase, idInput, idResultado) {
+  const id = document.getElementById(idInput).value;
+  return llamar(metodo, rutaBase + id, null, idResultado);
+}
+
+function comprar() {
+  const producto_id = Number(document.getElementById("in-compra-producto-id").value);
+  const cantidad = Number(document.getElementById("in-cantidad").value);
+  return llamar("POST", `/productos/${producto_id}/comprar`, { cantidad }, "r-compra");
+}
+
+async function probarConcurrencia() {
+  const idProducto = 1;
+  const compras = 10;
+  mostrar("r-concurrencia", "consultando stock inicial...");
+  const antes = await (await fetch(`/productos/${idProducto}`)).json();
+
+  mostrar("r-concurrencia", `disparando ${compras} compras en paralelo...`);
+  const inicio = performance.now();
+  const respuestas = await Promise.all(
+    Array.from({ length: compras }, () =>
+      fetch(`/productos/${idProducto}/comprar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cantidad: 1 }),
+      })
+    )
+  );
+  const ms = Math.round(performance.now() - inicio);
+  const exitosas = respuestas.filter(r => r.status === 200).length;
+
+  const despues = await (await fetch(`/productos/${idProducto}`)).json();
+  const diferencia = antes.stock - despues.stock;
+  mostrar(
+    "r-concurrencia",
+    `[${ms} ms para las ${compras} en paralelo]\n` +
+    `compras exitosas: ${exitosas}\n` +
+    `stock antes: ${antes.stock}\n` +
+    `stock despues: ${despues.stock}\n` +
+    `diferencia: ${diferencia} (esperado: ${exitosas}) -> ` +
+    (diferencia === exitosas ? "OK" : "INCONSISTENTE")
+  );
+}
+</script>
