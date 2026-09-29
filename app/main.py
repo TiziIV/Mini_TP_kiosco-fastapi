@@ -8,25 +8,25 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.comparacion import router as comparacion_router
-from app.datos import CatalogoRepositorio, Notificador
+from app.database import init_db
+from app.datos import Notificador
 from app.errores import ErrorDominio, manejador_error_dominio
 from app.productos import router as productos_router
 
 DIR_ESTATICOS = Path(__file__).resolve().parent.parent / "static"
 
 
-# R4: El repositorio y notificador se instancian una sola vez en el lifespan
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.catalogo = CatalogoRepositorio()
+    await init_db()
     app.state.notificador = Notificador()
     yield
 
 
 app = FastAPI(
     title="Mini TP Kiosco - UTN FRM",
-    description="Catálogo de productos y compras asincrónicas",
-    version="1.0.0",
+    description="Catálogo de productos y compras asincrónicas con PostgreSQL",
+    version="1.1.0",
     lifespan=lifespan,
 )
 

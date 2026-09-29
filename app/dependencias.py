@@ -1,16 +1,19 @@
-"""Dependencias compartidas (R2): cómo los handlers reciben el repositorio y el notificador.
+"""Dependencias compartidas (R2): inyección de sesión asincrónica y repositorio."""
 
-Las instancias se crean UNA sola vez en el lifespan (app/main.py, R4) y quedan
-en app.state; acá solo se las entrega a cada handler vía Depends().
-"""
+from fastapi import Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from fastapi import Request
-
+from app.database import async_session
 from app.datos import CatalogoRepositorio, Notificador
 
 
-async def get_repo(request: Request) -> CatalogoRepositorio:
-    return request.app.state.catalogo
+async def get_db() -> AsyncSession:
+    async with async_session() as session:
+        yield session
+
+
+async def get_repo(session: AsyncSession = Depends(get_db)) -> CatalogoRepositorio:
+    return CatalogoRepositorio(session)
 
 
 async def get_notificador(request: Request) -> Notificador:

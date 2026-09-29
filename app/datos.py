@@ -1,9 +1,13 @@
-"""Repositorio en memoria del kiosco y notificador."""
+"""Repositorio PostgreSQL del kiosco y notificador."""
 
 import asyncio
 from decimal import Decimal
 from typing import Optional
 
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import ProductoModel
 from app.errores import (
     ErrorDominio,
     ProductoInexistente,
@@ -15,121 +19,142 @@ from app.modelos import ProductoActualizar, ProductoCrear, ProductoRespuesta
 
 
 class CatalogoRepositorio:
-    """Gestiona los productos en memoria. Se instancia en el lifespan (R4)
-    y se inyecta por Depends() (R2).
-    """
+    """Gestiona los productos en PostgreSQL mediante AsyncSession."""
 
-    def __init__(self) -> None:
-        self._candado = asyncio.Lock()
-        self._contador_id = 3
-        # Catálogo inicial con Decimal (R6)
-        self._productos: dict[int, dict] = {
-            1: {
-                "id": 1,
-                "nombre": "Alfajor Guaymallén",
-                "precio": Decimal("650.00"),
-                "stock": 25,
-                "stock_reservado": 0,
-                "habilitado": True,
-                "categoria": "Golosinas",
-            },
-            2: {
-                "id": 2,
-                "nombre": "Gaseosa 500ml",
-                "precio": Decimal("1800.00"),
-                "stock": 10,
-                "stock_reservado": 2,
-                "habilitado": True,
-                "categoria": "Bebidas",
-            },
-            3: {
-                "id": 3,
-                "nombre": "Chicle Menta",
-                "precio": Decimal("300.00"),
-                "stock": 0,
-                "stock_reservado": 0,
-                "habilitado": False,
-                "categoria": "Golosinas",
-            },
-        }
+    _candado = asyncio.Lock()
 
-    # R1: Métodos declarados con async def y simulación de consulta
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
     async def listar(self, offset: int, limit: int) -> tuple[list[ProductoRespuesta], int]:
         await asyncio.sleep(0.05)
-        total = len(self._productos)
-        items = list(self._productos.values())[offset : offset + limit]
-        return [ProductoRespuesta(**p) for p in items], total
+        count_stmt = select(func.count()).select_from(ProductoModel)
+        total_res = await self.session.execute(count_stmt)
+        total = total_res.scalar_one()
+
+        stmt = select(ProductoModel).offset(offset).limit(limit)
+        result = await self.session.execute(stmt)
+        productos = result.scalars().all()
+
+        items = [
+            ProductoRespuesta(
+                id=p.id,
+                nombre=p.nombre,
+                precio=p.precio,
+                stock=p.stock,
+                stock_reservado=p.stock_reservado,
+                habilitado=p.habilitado,
+                categoria=p.categoria,
+            )
+            for p in productos
+        ]
+        return items, total
 
     async def obtener(self, producto_id: int) -> ProductoRespuesta:
         await asyncio.sleep(0.05)
-        producto = self._productos.get(producto_id)
-        if not producto:
+        p = await self.session.get(ProductoModel, producto_id)
+        if not p:
             raise ProductoInexistente(producto_id)
-        return ProductoRespuesta(**producto)
+        return ProductoRespuesta(
+            id=p.id,
+            nombre=p.nombre,
+            precio=p.precio,
+            stock=p.stock,
+            stock_reservado=p.stock_reservado,
+            habilitado=p.habilitado,
+            categoria=p.categoria,
+        )
 
     async def crear(self, datos: ProductoCrear) -> ProductoRespuesta:
         await asyncio.sleep(0.05)
         async with self._candado:
-            self._contador_id += 1
-            nuevo_id = self._contador_id
-            nuevo_dict = {"id": nuevo_id, **datos.model_dump()}
-            self._productos[nuevo_id] = nuevo_dict
-            return ProductoRespuesta(**nuevo_dict)
+            db_prod = ProductoModel(**datos.model_dump())
+            self.session.add(db_prod)
+            await self.session.commit()
+            await self.session.refresh(db_prod)
+            return ProductoRespuesta(
+                id=db_prod.id,
+                nombre=db_prod.nombre,
+                precio=db_prod.precio,
+                stock=db_prod.stock,
+                stock_reservado=db_prod.stock_reservado,
+                habilitado=db_prod.habilitado,
+                categoria=db_prod.categoria,
+            )
 
-    # R10: Distingue campo no enviado de enviado como null explícito
     async def actualizar(self, producto_id: int, datos: ProductoActualizar) -> ProductoRespuesta:
         await asyncio.sleep(0.05)
         async with self._candado:
-            if producto_id not in self._productos:
+            p = await self.session.get(ProductoModel, producto_id)
+            if not p:
                 raise ProductoInexistente(producto_id)
 
-            prod = self._productos[producto_id]
-            # exclude_unset=True: solo los campos que el cliente envió (incluido
-            # un null explícito en "categoria"); los no enviados no se tocan.
             valores_enviados = datos.model_dump(exclude_unset=True)
 
-            # Se arma el producto resultante en una copia y se valida ANTES de
-            # tocar el catálogo, así un PATCH inválido nunca deja datos a medias.
-            candidato = {**prod, **valores_enviados}
-            if candidato["stock_reservado"] > candidato["stock"]:
-                raise StockReservadoExcedido(candidato["stock_reservado"], candidato["stock"])
-            respuesta = ProductoRespuesta(**candidato)
+            candidato_stock = valores_enviados.get("stock", p.stock)
+            candidato_reservado = valores_enviados.get("stock_reservado", p.stock_reservado)
 
-            self._productos[producto_id] = candidato
-            return respuesta
+            if candidato_reservado > candidato_stock:
+                raise StockReservadoExcedido(candidato_reservado, candidato_stock)
 
-    # R11 y R12: Verificaciones concurrentes y descuento protegido bajo Lock
+            for key, value in valores_enviados.items():
+                setattr(p, key, value)
+
+            await self.session.commit()
+            await self.session.refresh(p)
+
+            return ProductoRespuesta(
+                id=p.id,
+                nombre=p.nombre,
+                precio=p.precio,
+                stock=p.stock,
+                stock_reservado=p.stock_reservado,
+                habilitado=p.habilitado,
+                categoria=p.categoria,
+            )
+
     async def comprar(self, producto_id: int, cantidad: int) -> ProductoRespuesta:
         await asyncio.sleep(0.05)
-        if producto_id not in self._productos:
+        p = await self.session.get(ProductoModel, producto_id)
+        if not p:
             raise ProductoInexistente(producto_id)
 
         async with self._candado:
-            prod = self._productos[producto_id]
+            p = await self.session.get(ProductoModel, producto_id)
+            if not p:
+                raise ProductoInexistente(producto_id)
 
             async def check_habilitado():
                 await asyncio.sleep(0.02)
-                if not prod["habilitado"]:
+                if not p.habilitado:
                     raise ProductoNoHabilitado(producto_id)
 
             async def check_stock():
                 await asyncio.sleep(0.02)
-                disponible = prod["stock"] - prod["stock_reservado"]
+                disponible = p.stock - p.stock_reservado
                 if disponible < cantidad:
                     raise StockInsuficiente(disponible, cantidad)
 
-            # R11: TaskGroup desempaquetando la excepción de dominio
             try:
                 async with asyncio.TaskGroup() as tg:
                     tg.create_task(check_habilitado())
                     tg.create_task(check_stock())
             except* ErrorDominio as eg:
-                # Relanzamos el primer error de dominio que falló
                 raise eg.exceptions[0]
 
-            # R12: Resta protegida bajo el candado
-            prod["stock"] -= cantidad
-            return ProductoRespuesta(**prod)
+            p.stock -= cantidad
+            await self.session.commit()
+            await self.session.refresh(p)
+
+            return ProductoRespuesta(
+                id=p.id,
+                nombre=p.nombre,
+                precio=p.precio,
+                stock=p.stock,
+                stock_reservado=p.stock_reservado,
+                habilitado=p.habilitado,
+                categoria=p.categoria,
+            )
 
 
 class Notificador:
